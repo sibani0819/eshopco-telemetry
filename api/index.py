@@ -1,18 +1,19 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict
 import numpy as np
 
 app = FastAPI()
 
-# CORS configuration - PROPERLY ENABLED
+# COMPLETE CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
 )
 
 class MetricsRequest(BaseModel):
@@ -104,21 +105,47 @@ async def calculate_metrics(request: MetricsRequest):
     
     return {"regions": results}
 
-@app.get("/")
-async def root():
-    return {
-        "message": "eShopCo Telemetry API",
-        "status": "active",
-        "regions_available": ["amer", "emea", "apac"],
-        "usage": "POST / with {'regions': ['amer','emea'], 'threshold_ms': 180}"
-    }
-
-# Health check endpoint
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
-
-# OPTIONS endpoint for CORS preflight
+# EXPLICIT OPTIONS HANDLER FOR CORS PREFLIGHT
 @app.options("/")
 async def options_root():
-    return {"message": "CORS enabled"}
+    return JSONResponse(
+        content={"message": "CORS allowed"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization"
+        }
+    )
+
+@app.get("/")
+async def root():
+    return JSONResponse(
+        content={
+            "message": "eShopCo Telemetry API",
+            "status": "active", 
+            "regions_available": ["amer", "emea", "apac"],
+            "usage": "POST / with {'regions': ['amer','emea'], 'threshold_ms': 180}"
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
+
+# Health check with CORS headers
+@app.get("/health")
+async def health():
+    return JSONResponse(
+        content={"status": "healthy"},
+        headers={
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
+
+# Add CORS headers to POST response manually
+@app.middleware("http")
+async def add_cors_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
