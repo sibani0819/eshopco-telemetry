@@ -10,13 +10,13 @@ import os
 
 app = FastAPI()
 
-# CORS configuration - FIXED
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Pydantic models
@@ -33,12 +33,13 @@ class RegionMetrics(BaseModel):
 class MetricsResponse(BaseModel):
     regions: Dict[str, RegionMetrics]
 
-# Load telemetry data
+# Load telemetry data - FIXED for Vercel
 def load_telemetry_data():
     """Load telemetry data from covered-latency.json"""
     try:
-        file_path = os.path.join(os.path.dirname(__file__), 'covered-latency.json')
-        with open(file_path, 'r') as f:
+        # For Vercel, the file should be in the same directory as your API
+        # Use relative path since __file__ doesn't work reliably
+        with open('api/covered-latency.json', 'r') as f:
             data = json.load(f)
         
         records = []
@@ -148,4 +149,3 @@ async def options_root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
-    
