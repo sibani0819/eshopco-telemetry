@@ -1,16 +1,14 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import pandas as pd
 import numpy as np
 import json
-import os
 
 app = FastAPI()
 
-# CORS configuration
+# CORS configuration - THIS IS CRITICAL
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,11 +17,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic models
+# Request model
 class MetricsRequest(BaseModel):
     regions: List[str]
     threshold_ms: int
 
+# Response models
 class RegionMetrics(BaseModel):
     avg_latency: float
     p95_latency: float
@@ -33,119 +32,105 @@ class RegionMetrics(BaseModel):
 class MetricsResponse(BaseModel):
     regions: Dict[str, RegionMetrics]
 
-# Load telemetry data - FIXED for Vercel
+# Load telemetry data - SIMPLIFIED
 def load_telemetry_data():
-    """Load telemetry data from covered-latency.json"""
+    """Load and return telemetry data"""
     try:
-        # For Vercel, the file should be in the same directory as your API
-        # Use relative path since __file__ doesn't work reliably
+        # Load the JSON data directly
         with open('api/covered-latency.json', 'r') as f:
             data = json.load(f)
         
-        records = []
-        for record in data:
-            records.append({
-                'region': record.get('region', ''),
-                'latency_ms': record.get('latency_ms', 0),
-                'uptime': record.get('uptime', 0.0)
+        # Convert to DataFrame
+        df_data = []
+        for item in data:
+            df_data.append({
+                'region': item['region'],
+                'latency_ms': item['latency_ms'],
+                'uptime': item['uptime']
             })
         
-        return pd.DataFrame(records)
+        return pd.DataFrame(df_data)
     
     except Exception as e:
-        print(f"Error loading telemetry data: {e}")
+        # If file loading fails, use hardcoded sample data
+        print(f"File load failed: {e}, using sample data")
         return create_sample_data()
 
 def create_sample_data():
-    """Create sample data as fallback"""
+    """Create sample telemetry data"""
     sample_data = []
-    regions = ["amer", "emea", "apac", "latam"]
+    regions_data = {
+        "amer": [120, 180, 90, 200, 85, 110, 95, 130, 160, 75],
+        "emea": [110, 160, 95, 170, 88, 105, 125, 140, 155, 82],
+        "apac": [130, 190, 100, 210, 92, 115, 135, 165, 175, 87],
+        "latam": [125, 170, 98, 195, 89, 108, 128, 150, 168, 84]
+    }
     
-    for region in regions:
-        for i in range(100):
-            latency = np.random.normal(120, 40)
-            uptime = np.random.uniform(0.85, 1.0)
-            
+    for region, latencies in regions_data.items():
+        for latency in latencies:
             sample_data.append({
                 "region": region,
-                "latency_ms": max(10, float(latency)),
-                "uptime": float(uptime)
+                "latency_ms": latency,
+                "uptime": np.random.uniform(0.85, 0.99)
             })
     
     return pd.DataFrame(sample_data)
 
-# Load data
-telemetry_df = load_telemetry_data()
-print(f"Loaded data with {len(telemetry_df)} records")
+# Load data at startup
+df = load_telemetry_data()
+print(f"✅ Loaded {len(df)} telemetry records")
+print(f"✅ Available regions: {df['region'].unique().tolist()}")
 
-def calculate_metrics(df: pd.DataFrame, regions: List[str], threshold_ms: int) -> Dict[str, Any]:
-    """Calculate metrics for specified regions"""
-    results = {}
-    
-    for region in regions:
-        # Filter data for the region
-        region_data = df[df['region'].str.lower() == region.lower()]
-        
-        if len(region_data) == 0:
-            results[region] = RegionMetrics(
-                avg_latency=0.0,
-                p95_latency=0.0,
-                avg_uptime=0.0,
-                breaches=0
-            )
-            continue
-        
-        latencies = region_data['latency_ms'].values
-        
-        # Calculate metrics
-        avg_latency = float(np.mean(latencies))
-        p95_latency = float(np.percentile(latencies, 95))
-        avg_uptime = float(np.mean(region_data['uptime'].values))
-        breaches = int(np.sum(latencies > threshold_ms))
-        
-        results[region] = RegionMetrics(
-            avg_latency=round(avg_latency, 2),
-            p95_latency=round(p95_latency, 2),
-            avg_uptime=round(avg_uptime, 4),
-            breaches=breaches
-        )
-    
-    return results
-
-@app.post("/")
-async def get_metrics(request: MetricsRequest):
-    """Main endpoint for metrics calculation"""
+@app.post("/", response_model=MetricsResponse)
+async def calculate_metrics(request: MetricsRequest):
+    """Main endpoint to calculate metrics"""
     try:
-        print(f"Request: regions={request.regions}, threshold={request.threshold_ms}ms")
+        results = {}
         
-        results = calculate_metrics(telemetry_df, request.regions, request.threshold_ms)
-        response = MetricsResponse(regions=results)
+        for region in request.regions:
+            # Filter data for region
+            region_data = df[df['region'] == region]
+            
+            if len(region_data) == 0:
+                # Return zeros if no data for region
+                results[region] = {
+                    "avg_latency": 0.0,
+                    "p95_latency": 0.0, 
+                    "avg_uptime": 0.0,
+                    "breaches": 0
+                }
+                continue
+            
+            latencies = region_data['latency_ms'].values
+            uptimes = region_data['uptime'].values
+            
+            # Calculate metrics
+            avg_latency = float(np.mean(latencies))
+            p95_latency = float(np.percentile(latencies, 95))
+            avg_uptime = float(np.mean(uptimes))
+            breaches = int(np.sum(latencies > request.threshold_ms))
+            
+            results[region] = {
+                "avg_latency": round(avg_latency, 2),
+                "p95_latency": round(p95_latency, 2),
+                "avg_uptime": round(avg_uptime, 4),
+                "breaches": breaches
+            }
         
-        return response
+        return {"regions": results}
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        return {"error": str(e)}
 
 @app.get("/")
 async def root():
     return {
-        "message": "eShopCo Telemetry API",
+        "message": "eShopCo Telemetry API", 
         "status": "active",
         "usage": "POST / with {'regions': ['amer','emea'], 'threshold_ms': 180}"
     }
 
-# Additional CORS handler for OPTIONS requests
-@app.options("/")
-async def options_root():
-    return JSONResponse(
-        content={"message": "CORS allowed"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-            "Access-Control-Allow-Headers": "*"
-        }
-    )
-
+# Health check endpoint
 @app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
+async def health():
+    return {"status": "healthy", "regions_available": df['region'].unique().tolist()}
