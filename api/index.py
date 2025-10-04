@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any
@@ -8,7 +8,7 @@ import json
 
 app = FastAPI()
 
-# CORS configuration - THIS IS CRITICAL
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,11 +32,10 @@ class RegionMetrics(BaseModel):
 class MetricsResponse(BaseModel):
     regions: Dict[str, RegionMetrics]
 
-# Load telemetry data - SIMPLIFIED
 def load_telemetry_data():
-    """Load and return telemetry data"""
+    """Load telemetry data from covered-latency.json"""
     try:
-        # Load the JSON data directly
+        # Load the JSON data
         with open('api/covered-latency.json', 'r') as f:
             data = json.load(f)
         
@@ -49,37 +48,25 @@ def load_telemetry_data():
                 'uptime': item['uptime']
             })
         
+        print(f"✅ Successfully loaded {len(df_data)} records from covered-latency.json")
         return pd.DataFrame(df_data)
     
+    except FileNotFoundError:
+        raise Exception("covered-latency.json file not found. Make sure it exists in the api/ folder.")
+    except json.JSONDecodeError:
+        raise Exception("Invalid JSON format in covered-latency.json")
     except Exception as e:
-        # If file loading fails, use hardcoded sample data
-        print(f"File load failed: {e}, using sample data")
-        return create_sample_data()
-
-def create_sample_data():
-    """Create sample telemetry data"""
-    sample_data = []
-    regions_data = {
-        "amer": [120, 180, 90, 200, 85, 110, 95, 130, 160, 75],
-        "emea": [110, 160, 95, 170, 88, 105, 125, 140, 155, 82],
-        "apac": [130, 190, 100, 210, 92, 115, 135, 165, 175, 87],
-        "latam": [125, 170, 98, 195, 89, 108, 128, 150, 168, 84]
-    }
-    
-    for region, latencies in regions_data.items():
-        for latency in latencies:
-            sample_data.append({
-                "region": region,
-                "latency_ms": latency,
-                "uptime": np.random.uniform(0.85, 0.99)
-            })
-    
-    return pd.DataFrame(sample_data)
+        raise Exception(f"Error loading telemetry data: {e}")
 
 # Load data at startup
-df = load_telemetry_data()
-print(f"✅ Loaded {len(df)} telemetry records")
-print(f"✅ Available regions: {df['region'].unique().tolist()}")
+try:
+    df = load_telemetry_data()
+    print(f"✅ Loaded {len(df)} telemetry records")
+    print(f"✅ Available regions: {df['region'].unique().tolist()}")
+except Exception as e:
+    print(f"❌ Failed to load telemetry data: {e}")
+    # Exit if data cannot be loaded
+    raise e
 
 @app.post("/", response_model=MetricsResponse)
 async def calculate_metrics(request: MetricsRequest):
@@ -120,7 +107,7 @@ async def calculate_metrics(request: MetricsRequest):
         return {"regions": results}
         
     except Exception as e:
-        return {"error": str(e)}
+        raise HTTPException(status_code=500, detail=f"Error calculating metrics: {str(e)}")
 
 @app.get("/")
 async def root():
@@ -130,7 +117,10 @@ async def root():
         "usage": "POST / with {'regions': ['amer','emea'], 'threshold_ms': 180}"
     }
 
-# Health check endpoint
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "regions_available": df['region'].unique().tolist()}
+    return {
+        "status": "healthy", 
+        "regions_available": df['region'].unique().tolist(),
+        "total_records": len(df)
+    }
