@@ -57,7 +57,7 @@ def load_telemetry_data():
             df_data.append({
                 'region': item.get('region', ''),
                 'latency_ms': item.get('latency_ms', 0),
-                'uptime': item.get('uptime_pct', 0.0) / 100.0
+                'uptime': item.get('uptime_pct', 0.0)
             })
         return pd.DataFrame(df_data)
     except Exception as e:
@@ -91,7 +91,7 @@ async def calculate_metrics(request: MetricsRequest):
         uptimes = region_data['uptime'].values
         avg_latency = float(np.mean(latencies))
         p95_latency = float(np.percentile(latencies, 95))
-        avg_uptime = float(np.mean(uptimes))
+        avg_uptime = float(np.mean(uptimes))  # already in percentage
         breaches = int(np.sum(latencies > request.threshold_ms))
         results[region] = {
             "avg_latency": round(avg_latency, 2),
