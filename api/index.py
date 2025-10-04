@@ -32,7 +32,7 @@ class MetricsResponse(BaseModel):
 
 def load_telemetry_data():
     try:
-        file_path = os.path.join(os.path.dirname(__file__), 'covered-latency.json')
+        file_path = os.path.join(os.path.dirname(__file__), 'q-vercel-latency.json')
         with open(file_path, 'r') as f:
             data = json.load(f)
         
