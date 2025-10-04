@@ -6,6 +6,7 @@ import numpy as np
 
 app = FastAPI()
 
+# CORS configuration - PROPERLY ENABLED
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,7 +28,7 @@ class RegionMetrics(BaseModel):
 class MetricsResponse(BaseModel):
     regions: Dict[str, RegionMetrics]
 
-# Your actual data embedded
+# YOUR ACTUAL DATA EMBEDDED STATICALLY
 telemetry_data = [
     {"region": "apac", "latency_ms": 132.85, "uptime": 0.98216},
     {"region": "apac", "latency_ms": 158.65, "uptime": 0.98449},
@@ -67,7 +68,7 @@ telemetry_data = [
     {"region": "amer", "latency_ms": 152.29, "uptime": 0.98653}
 ]
 
-@app.post("/", response_model=MetricsResponse)
+@app.post("/")
 async def calculate_metrics(request: MetricsRequest):
     results = {}
     
@@ -76,6 +77,7 @@ async def calculate_metrics(request: MetricsRequest):
         region_data = [item for item in telemetry_data if item['region'] == region]
         
         if not region_data:
+            # Return zeros if no data for region
             results[region] = {
                 "avg_latency": 0.0,
                 "p95_latency": 0.0,
@@ -87,6 +89,7 @@ async def calculate_metrics(request: MetricsRequest):
         latencies = [item['latency_ms'] for item in region_data]
         uptimes = [item['uptime'] for item in region_data]
         
+        # Calculate metrics
         avg_latency = float(np.mean(latencies))
         p95_latency = float(np.percentile(latencies, 95))
         avg_uptime = float(np.mean(uptimes))
@@ -109,3 +112,13 @@ async def root():
         "regions_available": ["amer", "emea", "apac"],
         "usage": "POST / with {'regions': ['amer','emea'], 'threshold_ms': 180}"
     }
+
+# Health check endpoint
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+# OPTIONS endpoint for CORS preflight
+@app.options("/")
+async def options_root():
+    return {"message": "CORS enabled"}
